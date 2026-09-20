@@ -38,12 +38,14 @@
   },
   "files": [
     "dist",
-    "src/pi-extension.ts"
+    "src/pi-extension.ts",
+    "assets"
   ],
   "pi": {
     "extensions": [
       "./src/pi-extension.ts"
-    ]
+    ],
+    "image": "https://cdn.jsdelivr.net/npm/@geohar/pi-acp/assets/preview.png"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
