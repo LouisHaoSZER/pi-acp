@@ -15,11 +15,11 @@ RUN npm install -g @earendil-works/pi-coding-agent \
 
 WORKDIR /src
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY . .
 RUN npm run build \
     && mkdir -p /opt/pi-eval-acp \
-    && cp -r dist /opt/pi-eval-acp/dist
+    && cp -r dist node_modules /opt/pi-eval-acp/
 
 ENTRYPOINT ["node", "/opt/pi-eval-acp/dist/index.js"]
