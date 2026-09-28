@@ -21,5 +21,3 @@ COPY . .
 RUN npm run build \
     && mkdir -p /opt/pi-eval-acp \
     && cp -r dist node_modules /opt/pi-eval-acp/
-
-ENTRYPOINT ["node", "/opt/pi-eval-acp/dist/index.js"]
