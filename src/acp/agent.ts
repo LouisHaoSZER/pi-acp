@@ -59,6 +59,7 @@ import {
 import { toAvailableCommandsFromPiGetCommands } from './pi-commands.js'
 import { maybeAuthRequiredError } from './auth-required.js'
 import { writeMcpConfig, buildMcpNotice, cleanupStaleGeneratedConfig } from './mcp-config.js'
+import { preparePiHome, hasPiMcpAdapter } from './pi-home.js'
 import { isAbsolute } from 'node:path'
 import { existsSync, readFileSync, realpathSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import type { AvailableCommand } from '@agentclientprotocol/sdk'
@@ -75,6 +76,12 @@ type AdvertisedModel = {
 
 const MODEL_CONFIG_ID = 'model'
 const THOUGHT_LEVEL_CONFIG_ID = 'thought_level'
+const TCOP_EVAL_META = {
+  version: 1,
+  artifact: true,
+  tool_name: true,
+  model_identity: true
+} as const
 
 function builtinAvailableCommands(): AvailableCommand[] {
   return [
@@ -219,7 +226,25 @@ export class PiAcpAgent implements ACPAgent {
       // MCP servers (session/load, session/resume). Plain restores (e.g. lazy restore on prompt)
       // carry no servers and generate nothing. Also clean up a stale generated `<cwd>/.pi/mcp.json`.
       cleanupStaleGeneratedConfig(cwd)
+      let piHome: ReturnType<typeof preparePiHome>
+      try {
+        piHome = preparePiHome(cwd)
+      } catch (e) {
+        throw RequestError.internalError(
+          {},
+          `Could not prepare per-session pi home: ${String((e as Error)?.message ?? e)}`
+        )
+      }
       const mcpWrite = writeMcpConfig(opts?.mcpServers)
+
+      if (mcpWrite.handle && !hasPiMcpAdapter()) {
+        mcpWrite.handle.cleanup()
+        piHome.cleanup()
+        throw RequestError.internalError(
+          {},
+          'MCP servers were provided but pi-mcp-adapter is not installed; refusing to start a zero-tool session.'
+        )
+      }
 
       let proc: PiRpcProcess
       try {
@@ -229,9 +254,20 @@ export class PiAcpAgent implements ACPAgent {
           piCommand: getPiCommandOverride(),
           additionalDirectories: opts?.additionalDirectories,
           mcpConfigPath: mcpWrite.handle?.path,
-          rpcTimeoutMs: getRpcTimeoutMs()
+          rpcTimeoutMs: getRpcTimeoutMs(),
+          env: { PI_CODING_AGENT_DIR: piHome.path }
         })
       } catch (e: any) {
+        try {
+          mcpWrite.handle?.cleanup()
+        } catch {
+          // best effort
+        }
+        try {
+          piHome.cleanup()
+        } catch {
+          // best effort
+        }
         if (e?.name === 'PiRpcSpawnError') {
           throw RequestError.internalError({ code: e?.code }, String(e?.message ?? e))
         }
@@ -239,21 +275,27 @@ export class PiAcpAgent implements ACPAgent {
       }
 
       const fileCommands = loadSlashCommands(cwd)
-      const session = this.sessions.getOrCreate(sessionId, {
-        cwd,
-        mcpServers: opts?.mcpServers ?? [],
-        conn: this.conn,
-        proc,
-        fileCommands,
-        additionalDirectories: opts?.additionalDirectories,
-        mcpConfigCleanup: mcpWrite.handle?.cleanup,
-        clientCapabilities: this.clientCapabilities
-      })
+      try {
+        const session = this.sessions.getOrCreate(sessionId, {
+          cwd,
+          mcpServers: opts?.mcpServers ?? [],
+          conn: this.conn,
+          proc,
+          fileCommands,
+          additionalDirectories: opts?.additionalDirectories,
+          mcpConfigCleanup: mcpWrite.handle?.cleanup,
+          piHomeCleanup: piHome.cleanup,
+          clientCapabilities: this.clientCapabilities
+        })
 
-      this.lastSessionCwd = cwd
-      this.store.upsert({ sessionId, cwd, sessionFile: stored.sessionFile })
+        this.lastSessionCwd = cwd
+        this.store.upsert({ sessionId, cwd, sessionFile: stored.sessionFile })
 
-      return session
+        return session
+      } catch (e) {
+        this.sessions.close(sessionId)
+        throw e
+      }
     })()
 
     this.restoringSessions.set(sessionId, restorePromise)
@@ -307,6 +349,9 @@ export class PiAcpAgent implements ACPAgent {
           resume: {},
           close: {}
         }
+      },
+      _meta: {
+        'tcop.ai/eval': TCOP_EVAL_META
       }
     }
   }
@@ -332,7 +377,24 @@ export class PiAcpAgent implements ACPAgent {
     // (written before create() so it exists before pi starts). Also clean up any stale
     // `<cwd>/.pi/mcp.json` a previous pi-acp version generated, so it can't win at highest precedence.
     cleanupStaleGeneratedConfig(params.cwd)
+    let piHome: ReturnType<typeof preparePiHome>
+    try {
+      piHome = preparePiHome(params.cwd)
+    } catch (e) {
+      throw RequestError.internalError(
+        {},
+        `Could not prepare per-session pi home: ${String((e as Error)?.message ?? e)}`
+      )
+    }
     const mcpWrite = writeMcpConfig(params.mcpServers)
+    if (mcpWrite.handle && !hasPiMcpAdapter()) {
+      mcpWrite.handle.cleanup()
+      piHome.cleanup()
+      throw RequestError.internalError(
+        {},
+        'MCP servers were provided but pi-mcp-adapter is not installed; refusing to start a zero-tool session.'
+      )
+    }
     const mcpNotice = buildMcpNotice(params.cwd, mcpWrite)
 
     const session = await this.sessions.create({
@@ -345,7 +407,9 @@ export class PiAcpAgent implements ACPAgent {
       piCommand: getPiCommandOverride(),
       additionalDirectories,
       clientCapabilities: this.clientCapabilities,
-      rpcTimeoutMs: getRpcTimeoutMs()
+      rpcTimeoutMs: getRpcTimeoutMs(),
+      env: { PI_CODING_AGENT_DIR: piHome.path },
+      piHomeCleanup: piHome.cleanup
     })
 
     // Fetch state + models once (parallel) to reduce startup latency.

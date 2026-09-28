@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { resolve } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { PiAcpAgent } from '../../src/acp/agent.js'
 import { FakeAgentSideConnection, asAgentConn } from '../helpers/fakes.js'
 
@@ -47,10 +49,10 @@ function makeSession(cwd: string) {
 test('PiAcpAgent: newSession forwards normalized additionalDirectories to the session', async () => {
   const realSetTimeout = globalThis.setTimeout
   ;(globalThis as any).setTimeout = () => 0 as any
+  const cwd = mkdtempSync(join(tmpdir(), 'pi-acp-new-session-'))
 
   try {
     const conn = new FakeAgentSideConnection()
-    const cwd = process.cwd()
     const extra = resolve(cwd, 'lib')
 
     const session = makeSession(cwd)
@@ -64,16 +66,17 @@ test('PiAcpAgent: newSession forwards normalized additionalDirectories to the se
     assert.deepEqual(sessions.createCalls[0].additionalDirectories, [extra])
   } finally {
     ;(globalThis as any).setTimeout = realSetTimeout
+    rmSync(cwd, { recursive: true, force: true })
   }
 })
 
 test('PiAcpAgent: newSession accepts omitted additionalDirectories', async () => {
   const realSetTimeout = globalThis.setTimeout
   ;(globalThis as any).setTimeout = () => 0 as any
+  const cwd = mkdtempSync(join(tmpdir(), 'pi-acp-new-session-'))
 
   try {
     const conn = new FakeAgentSideConnection()
-    const cwd = process.cwd()
 
     const session = makeSession(cwd)
     const sessions = new FakeSessions(session)
@@ -86,6 +89,7 @@ test('PiAcpAgent: newSession accepts omitted additionalDirectories', async () =>
     assert.deepEqual(sessions.createCalls[0].additionalDirectories, [])
   } finally {
     ;(globalThis as any).setTimeout = realSetTimeout
+    rmSync(cwd, { recursive: true, force: true })
   }
 })
 

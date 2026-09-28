@@ -90,6 +90,8 @@ type SpawnParams = {
   mcpConfigPath?: string
   /** Per-request RPC timeout (ms). Falls back to {@link DEFAULT_RPC_TIMEOUT_MS} when unset. */
   rpcTimeoutMs?: number
+  /** Extra environment variables for the spawned pi process (merged over `process.env`). */
+  env?: NodeJS.ProcessEnv
 }
 
 /**
@@ -231,7 +233,7 @@ export class PiRpcProcess {
       stdio: 'pipe',
       // Mark the spawned pi as running under the ACP adapter so the bundled pi extension
       // (subagent → plan bridge) activates here but stays inert in a normal terminal `pi`.
-      env: { ...process.env, PI_ACP: '1' },
+      env: { ...process.env, ...(params.env ?? {}), PI_ACP: '1' },
       shell: shouldUseShellForPiCommand(cmd)
     })
 

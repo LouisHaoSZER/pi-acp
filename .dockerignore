@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+dist
+.pi
+.pi-home
+*.log
+.eslintcache
+docs
+assets

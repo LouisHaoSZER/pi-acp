@@ -58,6 +58,10 @@ type SessionCreateParams = {
   mcpConfigPath?: string
   /** Cleanup for the generated MCP config temp file, invoked when the session is closed. */
   mcpConfigCleanup?: () => void
+  /** Cleanup for the per-session `.pi-home` dir, invoked when the session is closed. */
+  piHomeCleanup?: () => void
+  /** Extra environment variables for the session's pi subprocess (e.g. `PI_CODING_AGENT_DIR`). */
+  env?: NodeJS.ProcessEnv
   /** Full ACP client capabilities from initialize, used to gate wire features (terminals, plan, fs). */
   clientCapabilities?: ClientCapabilities
   /** Per-request pi RPC timeout (ms); falls back to the process default when unset. */
@@ -206,6 +210,11 @@ export class SessionManager {
     } catch {
       // ignore
     }
+    try {
+      s.piHomeCleanup?.()
+    } catch {
+      // ignore
+    }
     this.sessions.delete(sessionId)
   }
 
@@ -228,8 +237,8 @@ export class SessionManager {
   }
 
   async create(params: SessionCreateParams): Promise<PiAcpSession> {
-    // Let pi manage session persistence in its default location (~/.pi/agent/sessions/...)
-    // so sessions are visible to the regular `pi` CLI.
+    // Let pi persist the session where PI_CODING_AGENT_DIR points. Eval sessions pass the
+    // per-session `<cwd>/.pi-home`, which keeps session files inside the trial workspace.
     let proc: PiRpcProcess
     try {
       proc = await PiRpcProcess.spawn({
@@ -237,43 +246,74 @@ export class SessionManager {
         piCommand: params.piCommand,
         additionalDirectories: params.additionalDirectories,
         mcpConfigPath: params.mcpConfigPath,
-        rpcTimeoutMs: params.rpcTimeoutMs
+        rpcTimeoutMs: params.rpcTimeoutMs,
+        env: params.env
       })
     } catch (e) {
+      try {
+        params.mcpConfigCleanup?.()
+      } catch {
+        // best effort
+      }
+      try {
+        params.piHomeCleanup?.()
+      } catch {
+        // best effort
+      }
       if (e instanceof PiRpcSpawnError) {
         throw RequestError.internalError({ code: e.code }, e.message)
       }
       throw e
     }
 
-    let state: any = null
     try {
-      state = (await proc.getState()) as any
-    } catch {
-      state = null
+      let state: any = null
+      try {
+        state = (await proc.getState()) as any
+      } catch {
+        state = null
+      }
+
+      const sessionId = typeof state?.sessionId === 'string' ? state.sessionId : crypto.randomUUID()
+      const sessionFile = typeof state?.sessionFile === 'string' ? state.sessionFile : null
+
+      if (sessionFile) {
+        this.store.upsert({ sessionId, cwd: params.cwd, sessionFile })
+      }
+
+      const session = new PiAcpSession({
+        sessionId,
+        cwd: params.cwd,
+        mcpServers: params.mcpServers,
+        proc,
+        conn: params.conn,
+        fileCommands: params.fileCommands ?? [],
+        additionalDirectories: params.additionalDirectories ?? [],
+        mcpConfigCleanup: params.mcpConfigCleanup,
+        piHomeCleanup: params.piHomeCleanup,
+        clientCapabilities: params.clientCapabilities
+      })
+
+      this.sessions.set(sessionId, session)
+      return session
+    } catch (e) {
+      try {
+        proc.dispose?.()
+      } catch {
+        // best effort
+      }
+      try {
+        params.mcpConfigCleanup?.()
+      } catch {
+        // best effort
+      }
+      try {
+        params.piHomeCleanup?.()
+      } catch {
+        // best effort
+      }
+      throw e
     }
-
-    const sessionId = typeof state?.sessionId === 'string' ? state.sessionId : crypto.randomUUID()
-    const sessionFile = typeof state?.sessionFile === 'string' ? state.sessionFile : null
-
-    if (sessionFile) {
-      this.store.upsert({ sessionId, cwd: params.cwd, sessionFile })
-    }
-
-    const session = new PiAcpSession({
-      sessionId,
-      cwd: params.cwd,
-      mcpServers: params.mcpServers,
-      proc,
-      conn: params.conn,
-      fileCommands: params.fileCommands ?? [],
-      additionalDirectories: params.additionalDirectories ?? [],
-      mcpConfigCleanup: params.mcpConfigCleanup,
-      clientCapabilities: params.clientCapabilities
-    })
-
-    this.sessions.set(sessionId, session)
-    return session
   }
 
   get(sessionId: string): PiAcpSession {
@@ -299,6 +339,7 @@ export class SessionManager {
       fileCommands: params.fileCommands ?? [],
       additionalDirectories: params.additionalDirectories ?? [],
       mcpConfigCleanup: params.mcpConfigCleanup,
+      piHomeCleanup: params.piHomeCleanup,
       clientCapabilities: params.clientCapabilities
     })
 
@@ -313,6 +354,7 @@ export class PiAcpSession {
   readonly mcpServers: McpServer[]
   readonly additionalDirectories: string[]
   readonly mcpConfigCleanup?: () => void
+  readonly piHomeCleanup?: () => void
   private readonly clientCapabilities?: ClientCapabilities
 
   private startupInfo: string | null = null
@@ -359,6 +401,7 @@ export class PiAcpSession {
     fileCommands?: FileSlashCommand[]
     additionalDirectories?: string[]
     mcpConfigCleanup?: () => void
+    piHomeCleanup?: () => void
     clientCapabilities?: ClientCapabilities
   }) {
     this.sessionId = opts.sessionId
@@ -366,6 +409,7 @@ export class PiAcpSession {
     this.mcpServers = opts.mcpServers
     this.additionalDirectories = opts.additionalDirectories ?? []
     this.mcpConfigCleanup = opts.mcpConfigCleanup
+    this.piHomeCleanup = opts.piHomeCleanup
     this.proc = opts.proc
     this.conn = opts.conn
     this.fileCommands = opts.fileCommands ?? []

@@ -14,10 +14,11 @@ test('PiAcpAgent: quietStartup=true disables startup info generation/emission', 
   const prevAgentDir = process.env.PI_CODING_AGENT_DIR
 
   // Force quietStartup in pi settings by pointing PI_CODING_AGENT_DIR at a temp dir.
-  const { mkdtempSync, writeFileSync } = await import('node:fs')
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = mkdtempSync(join(tmpdir(), 'pi-acp-quietstartup-'))
+  const cwd = mkdtempSync(join(tmpdir(), 'pi-acp-quietstartup-cwd-'))
   writeFileSync(join(dir, 'settings.json'), JSON.stringify({ quietStartup: true }, null, 2), 'utf-8')
   process.env.PI_CODING_AGENT_DIR = dir
 
@@ -35,7 +36,7 @@ test('PiAcpAgent: quietStartup=true disables startup info generation/emission', 
     let setStartupInfoCalled = false
     const session = {
       sessionId: 's1',
-      cwd: process.cwd(),
+      cwd,
       proc: {
         async getAvailableModels() {
           return { models: [{ provider: 'test', id: 'model', name: 'model' }] }
@@ -58,7 +59,7 @@ test('PiAcpAgent: quietStartup=true disables startup info generation/emission', 
     const agent = new PiAcpAgent(asAgentConn(conn), {} as any)
     ;(agent as any).sessions = new FakeSessions(session) as any
 
-    const res = await agent.newSession({ cwd: process.cwd(), mcpServers: [] } as any)
+    const res = await agent.newSession({ cwd, mcpServers: [] } as any)
 
     const startupInfo = res?._meta?.piAcp?.startupInfo ?? null
 
@@ -77,5 +78,6 @@ test('PiAcpAgent: quietStartup=true disables startup info generation/emission', 
     ;(globalThis as any).setTimeout = realSetTimeout
     if (prevAgentDir == null) delete process.env.PI_CODING_AGENT_DIR
     else process.env.PI_CODING_AGENT_DIR = prevAgentDir
+    rmSync(cwd, { recursive: true, force: true })
   }
 })

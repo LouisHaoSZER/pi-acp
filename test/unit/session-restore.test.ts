@@ -86,7 +86,8 @@ test('PiAcpAgent: prompt auto-restores a missing session from SessionStore', asy
         piCommand: undefined,
         additionalDirectories: undefined,
         mcpConfigPath: undefined,
-        rpcTimeoutMs: 120000
+        rpcTimeoutMs: 120000,
+        env: { PI_CODING_AGENT_DIR: '/tmp/store-project/.pi-home' }
       }
     ])
     assert.deepEqual(promptCalls, [{ message: 'hello again', images: [] }])
@@ -185,7 +186,8 @@ test('PiAcpAgent: setSessionConfigOption auto-restores via pi session discovery 
         piCommand: undefined,
         additionalDirectories: undefined,
         mcpConfigPath: undefined,
-        rpcTimeoutMs: 120000
+        rpcTimeoutMs: 120000,
+        env: { PI_CODING_AGENT_DIR: '/tmp/fallback-project/.pi-home' }
       }
     ])
     assert.deepEqual(setModelCalls, [{ provider: 'test', modelId: 'beta' }])

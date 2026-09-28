@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PiAcpAgent } from '../../src/acp/agent.js'
@@ -9,6 +9,7 @@ import { FakeAgentSideConnection, asAgentConn } from '../helpers/fakes.js'
 test('PiAcpAgent: newSession returns a helpful Internal error when pi is not installed', async () => {
   const prevAgentDir = process.env.PI_CODING_AGENT_DIR
   const agentDir = mkdtempSync(join(tmpdir(), 'pi-acp-agentdir-'))
+  const cwd = mkdtempSync(join(tmpdir(), 'pi-acp-pi-not-found-cwd-'))
   process.env.PI_CODING_AGENT_DIR = agentDir
   // Point pi-acp's own settings at a non-existent binary so spawn fails deterministically.
   mkdirSync(join(agentDir, 'extensions'), { recursive: true })
@@ -19,7 +20,7 @@ test('PiAcpAgent: newSession returns a helpful Internal error when pi is not ins
     const agent = new PiAcpAgent(asAgentConn(conn), {} as any)
 
     await assert.rejects(
-      () => agent.newSession({ cwd: process.cwd(), mcpServers: [] } as any),
+      () => agent.newSession({ cwd, mcpServers: [] } as any),
       (e: any) =>
         e?.code === -32603 &&
         String(e?.message ?? '')
@@ -29,5 +30,6 @@ test('PiAcpAgent: newSession returns a helpful Internal error when pi is not ins
   } finally {
     if (prevAgentDir == null) delete process.env.PI_CODING_AGENT_DIR
     else process.env.PI_CODING_AGENT_DIR = prevAgentDir
+    rmSync(cwd, { recursive: true, force: true })
   }
 })

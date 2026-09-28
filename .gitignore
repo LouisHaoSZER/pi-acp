@@ -1,4 +1,6 @@
 node_modules
+.pi-home
+.pi/
 .dist
 .dist-cache
 dist

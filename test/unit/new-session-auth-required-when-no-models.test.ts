@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PiAcpAgent } from '../../src/acp/agent.js'
 import { FakeAgentSideConnection, asAgentConn } from '../helpers/fakes.js'
 
@@ -19,10 +22,11 @@ class FakeSessions {
 
 test('PiAcpAgent: newSession throws AUTH_REQUIRED when pi reports zero available models', async () => {
   const conn = new FakeAgentSideConnection()
+  const cwd = mkdtempSync(join(tmpdir(), 'pi-acp-auth-cwd-'))
 
   const session = {
     sessionId: 's1',
-    cwd: process.cwd(),
+    cwd,
     proc: {
       async getAvailableModels() {
         return { models: [] }
@@ -39,7 +43,7 @@ test('PiAcpAgent: newSession throws AUTH_REQUIRED when pi reports zero available
 
   let threw = false
   try {
-    await agent.newSession({ cwd: process.cwd(), mcpServers: [] } as any)
+    await agent.newSession({ cwd, mcpServers: [] } as any)
   } catch (e: any) {
     threw = true
     assert.equal(e?.code, -32000)
@@ -48,4 +52,5 @@ test('PiAcpAgent: newSession throws AUTH_REQUIRED when pi reports zero available
 
   assert.equal(threw, true)
   assert.deepEqual(sessions.closeCalls, ['s1'])
+  rmSync(cwd, { recursive: true, force: true })
 })

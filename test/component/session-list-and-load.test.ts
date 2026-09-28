@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { PiAcpAgent } from '../../src/acp/agent.js'
+import { SessionStore } from '../../src/acp/session-store.js'
 import { FakeAgentSideConnection, asAgentConn } from '../helpers/fakes.js'
 
 // We mock PiRpcProcess.spawn so loadSession doesn't actually spawn `pi`.
@@ -60,6 +61,7 @@ test('PiAcpAgent: listSessions lists pi sessions and loadSession replays history
   try {
     const conn = new FakeAgentSideConnection()
     const agent = new PiAcpAgent(asAgentConn(conn))
+    ;(agent as any).store = new SessionStore(join(root, 'session-map.json'))
 
     // 1) list sessions
     const listed = await agent.listSessions({ cwd: null, cursor: null, _meta: null } as any)
@@ -77,6 +79,7 @@ test('PiAcpAgent: listSessions lists pi sessions and loadSession replays history
       // ensure loadSession resolves to some jsonl that ends with our expected filename
       assert.ok(typeof params.sessionPath === 'string')
       assert.ok(params.sessionPath.endsWith('/0000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jsonl'))
+      assert.equal(params.env?.PI_CODING_AGENT_DIR, '/tmp/project/.pi-home')
 
       return {
         onExit: () => () => {},

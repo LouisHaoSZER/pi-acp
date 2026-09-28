@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PiAcpAgent } from '../../src/acp/agent.js'
 import { FakeAgentSideConnection, asAgentConn } from '../helpers/fakes.js'
 
@@ -26,12 +29,13 @@ class FakeSessions {
 test('PiAcpAgent: newSession returns configOptions for model and thinking selectors', async () => {
   const realSetTimeout = globalThis.setTimeout
   ;(globalThis as any).setTimeout = () => 0 as any
+  const cwd = mkdtempSync(join(tmpdir(), 'pi-acp-config-cwd-'))
 
   try {
     const conn = new FakeAgentSideConnection()
     const session = {
       sessionId: 's1',
-      cwd: process.cwd(),
+      cwd,
       proc: {
         async getAvailableModels() {
           return {
@@ -55,7 +59,7 @@ test('PiAcpAgent: newSession returns configOptions for model and thinking select
     const agent = new PiAcpAgent(asAgentConn(conn), {} as any)
     ;(agent as any).sessions = new FakeSessions(session) as any
 
-    const result = await agent.newSession({ cwd: process.cwd(), mcpServers: [] } as any)
+    const result = await agent.newSession({ cwd, mcpServers: [] } as any)
 
     assert.equal(result.models?.currentModelId, 'test/beta')
     assert.equal(result.modes?.currentModeId, 'high')
@@ -91,6 +95,7 @@ test('PiAcpAgent: newSession returns configOptions for model and thinking select
     ])
   } finally {
     ;(globalThis as any).setTimeout = realSetTimeout
+    rmSync(cwd, { recursive: true, force: true })
   }
 })
 
