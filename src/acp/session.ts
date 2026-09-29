@@ -574,7 +574,7 @@ export class PiAcpSession {
             content: bashTerminalContent(params.toolCallId),
             _meta: bashTerminalInfoMeta(params.toolCallId, this.cwd)
           }
-        : { rawInput: params.args })
+        : withRawInput(params.args))
     })
   }
 
@@ -606,7 +606,7 @@ export class PiAcpSession {
         content: body
           ? ([{ type: 'content', content: { type: 'text', text: body } }] satisfies ToolCallContent[])
           : undefined,
-        rawOutput: params.result
+        ...withRawOutput(params.result)
       })
       return
     }
@@ -826,7 +826,7 @@ export class PiAcpSession {
             kind: toToolKind(toolName),
             status: 'in_progress',
             locations,
-            rawInput: args
+            ...withRawInput(args)
           })
         } else {
           this.currentToolCalls.set(toolCallId, 'in_progress')
@@ -835,7 +835,7 @@ export class PiAcpSession {
             toolCallId,
             status: 'in_progress',
             locations,
-            rawInput: args
+            ...withRawInput(args)
           })
         }
 
@@ -861,7 +861,7 @@ export class PiAcpSession {
           content: text
             ? ([{ type: 'content', content: { type: 'text', text } }] satisfies ToolCallContent[])
             : undefined,
-          ...(this.fileMutationToolCallIds.has(toolCallId) ? {} : { rawOutput: partial })
+          ...(this.fileMutationToolCallIds.has(toolCallId) ? {} : withRawOutput(partial))
         })
         break
       }
@@ -918,7 +918,7 @@ export class PiAcpSession {
           toolCallId,
           status: isError ? 'failed' : 'completed',
           content,
-          ...(hasStructuredDiff ? {} : { rawOutput: result })
+          ...(hasStructuredDiff ? {} : withRawOutput(result))
         })
 
         this.cleanupToolCall(toolCallId)
@@ -1193,6 +1193,32 @@ function extensionUiToolCall(id: string, ev: PiRpcEvent) {
     status: 'pending' as const,
     rawInput
   }
+}
+
+function stripNulls(value: unknown): unknown {
+  if (value == null) return undefined
+  if (Array.isArray(value)) {
+    return value.map(stripNulls).filter((item) => item !== undefined)
+  }
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const cleaned = stripNulls(item)
+      if (cleaned !== undefined) out[key] = cleaned
+    }
+    return out
+  }
+  return value
+}
+
+function withRawOutput(value: unknown): { rawOutput?: unknown } {
+  const cleaned = stripNulls(value)
+  return cleaned == null ? {} : { rawOutput: cleaned }
+}
+
+function withRawInput(value: unknown): { rawInput?: unknown } {
+  const cleaned = stripNulls(value)
+  return cleaned == null ? {} : { rawInput: cleaned }
 }
 
 function stringProp(source: Record<string, unknown>, key: string): string | null {
